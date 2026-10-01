@@ -1,21 +1,20 @@
-# bot/config.py
+import os
 
-# URL do novo blog de destino no Blogger
-BLOG_URL = "https://radiorockbackfm.blogspot.com/"
+# Configurações do WordPress puxadas dos Secrets (não usado, mas mantido)
+WP_URL = os.getenv("WP_URL")
+WP_USERNAME = os.getenv("WP_USERNAME")
+WP_APP_PASSWORD = os.getenv("WP_APP_PASSWORD")
 
-# Novas fontes de notícias focadas em Rock/Metal
-FONTES_NOTICIAS = [
-    "https://www.rocknoticias.com.br/",
-    "https://whiplash.net/",
-    "https://portaldorock.com.br/"
+# Configurações do Gemini
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = "gemini-1.5-flash"
+
+# Configurações de Postagem
+WP_POST_STATUS = "draft"
+ARTICLES_PER_RUN = 3
+
+# Fontes de notícias de Rock/Metal
+RSS_FEEDS = [
+    ("Rock Notícias", "https://www.rocknoticias.com.br"),
+    ("Whiplash.net", "https://whiplash.net")
 ]
-
-# Feeds RSS das respectivas fontes para coleta automatizada mais estável
-FEEDS_RSS = [
-    "https://www.rocknoticias.com.br/feed/",
-    "https://whiplash.net/rss.xml",
-    "https://portaldorock.com.br/feed/"
-]
-
-# ID numérico do seu novo painel do Blogger (Substitua pelo seu ID real se necessário)
-BLOGGER_BLOG_ID = "seu_blog_id_aqui"

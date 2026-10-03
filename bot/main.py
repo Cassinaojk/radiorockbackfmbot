@@ -90,6 +90,44 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
 AI_PROVIDER_TIMEOUT = int(os.getenv("AI_PROVIDER_TIMEOUT", "90"))
 
+# ===== IMAGENS PADRÃO DO REPOSITÓRIO (sequência cíclica 1-10) =====
+IMAGENS_PADRAO = [
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(1).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(2).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(3).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(4).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(5).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(6).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(7).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(8).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(9).png",
+    "https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20(10).png",
+]
+
+COUNTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "image_counter.txt")
+
+
+def ler_contador_imagem():
+    """Lê o contador atual. Se não existir, começa em 1."""
+    try:
+        with open(COUNTER_FILE, "r") as f:
+            valor = int(f.read().strip())
+            if valor < 1 or valor > len(IMAGENS_PADRAO):
+                return 1
+            return valor
+    except (FileNotFoundError, ValueError, OSError):
+        return 1
+
+
+def salvar_contador_imagem(valor):
+    """Salva o contador para a próxima execução."""
+    try:
+        with open(COUNTER_FILE, "w") as f:
+            f.write(str(valor))
+    except Exception as e:
+        print(f"⚠ Imagem: não foi possível salvar o contador: {e}")
+
+
 # ===== Filtro de Rock/Metal =====
 ROCK_STRONG_TERMS = (
     "rock", "metal", "heavy metal", "hard rock", "punk", "grunge",
@@ -1227,7 +1265,7 @@ def html(article, generated, final_image="", image_origin="", seo=None):
 
 
 def main():
-    print("Fontes: Rock Notícias + Whiplash.net | Imagens e vídeos originais das fontes")
+    print("Fontes: Rock Notícias + Whiplash.net | Imagens do repositório (sequência 1-10)")
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     api = blogger()
     old_blog_urls, old_source_urls = existing(api)
@@ -1286,15 +1324,15 @@ def main():
                 break
             continue
 
-        # Usa a imagem original do artigo
-        final_image = article.get("image", "")
-        if not final_image:
-            print("⚠ Imagem: artigo sem imagem original. Publicando sem imagem.")
-            # Se não houver imagem, usa uma imagem padrão genérica de rock
-            final_image = "https://images.unsplash.com/photo-1493225457124-a3eb161ffa5f?w=1200&h=630&fit=crop"
-        
-        image_origin = "Imagem original da fonte"
-        print(f"✓ Imagem final: {image_origin}")
+        # ===== IMAGEM PADRÃO DO REPOSITÓRIO (sequência cíclica 1-10) =====
+        contador = ler_contador_imagem()
+        final_image = IMAGENS_PADRAO[contador - 1]
+        image_origin = f"Imagem padrão do repositório (índice {contador}/10)"
+        print(f"✓ Imagem: usando imagem {contador}/10 do repositório")
+
+        # Avança o contador para a próxima publicação
+        proximo = (contador % len(IMAGENS_PADRAO)) + 1
+        salvar_contador_imagem(proximo)
 
         seo = build_seo_payload(
             article=article,
@@ -1359,6 +1397,6 @@ def main():
     print(f"Falhas: {failed}")
 
 
-print("VERSÃO 1.0 ATIVA: SEO automático | imagens originais das fontes | vídeos incorporados | Spotify após a matéria")
+print("VERSÃO 1.1 ATIVA: imagens do repositório em sequência cíclica 1-10 | SEO automático | vídeos incorporados | Spotify após a matéria")
 
 main()

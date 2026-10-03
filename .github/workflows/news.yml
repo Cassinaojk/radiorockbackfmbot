@@ -1,12 +1,9 @@
 name: Robô Rádio RockBack FM
 
 on:
-  # Executa a cada 30 minutos
   schedule:
     - cron: "*/30 * * * *"
-  # Permite execução manual pelo botão "Run workflow"
   workflow_dispatch:
-  # Opcional: executa também em push para a branch main quando o bot for alterado
   push:
     branches:
       - main
@@ -14,11 +11,9 @@ on:
       - "bot/main.py"
       - ".github/workflows/bot.yml"
 
-# Permissão para o GITHUB_TOKEN commitar o contador de imagens de volta no repositório
 permissions:
   contents: write
 
-# Evita execuções simultâneas sobrepostas
 concurrency:
   group: radio-rockback-bot
   cancel-in-progress: false
@@ -32,7 +27,6 @@ jobs:
       - name: Checkout do repositório
         uses: actions/checkout@v4
         with:
-          # Precisa do token com permissão de escrita para o commit do contador
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
@@ -40,17 +34,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-          cache: "pip"
-          cache-dependency-path: "bot/requirements.txt"
 
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          if [ -f bot/requirements.txt ]; then
-            pip install -r bot/requirements.txt
-          else
-            pip install requests beautifulsoup4 google-genai google-auth google-auth-oauthlib google-api-python-client
-          fi
+          pip install requests beautifulsoup4 google-genai google-auth google-auth-oauthlib google-api-python-client
 
       - name: Verificar contador de imagens
         run: |
@@ -64,19 +52,16 @@ jobs:
       - name: Rodar robô de notícias
         working-directory: bot
         env:
-          # ===== Obrigatórios =====
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-          # ===== Opcionais (fallback de IA) =====
           GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
 
-          # ===== SEO / Blog =====
           BLOG_NAME: "Rádio RockBack FM"
           BLOG_HOME_URL: "https://radiorockbackfm.blogspot.com"
           BLOG_LOCALE: "pt_BR"
@@ -85,19 +70,15 @@ jobs:
           SEO_DESCRIPTION_MAX: "160"
           SEO_KEYWORDS_MAX: "12"
 
-          # ===== Limites de execução =====
           MAX_POSTS_PER_RUN: "1"
           MAX_GEMINI_TEXT_CALLS_PER_RUN: "6"
 
-          # ===== Modelos de IA =====
           GEMINI_MODEL: "gemini-3.5-flash-lite"
           GEMINI_FALLBACK_MODEL: "gemini-3.6-flash"
           GROQ_MODEL: "openai/gpt-oss-20b"
           MISTRAL_MODEL: "mistral-small-latest"
           AI_PROVIDER_TIMEOUT: "90"
 
-          # ===== Log =====
-          # Mude para "true" temporariamente se precisar depurar
           VERBOSE_LOG: "false"
         run: python main.py
 
@@ -113,7 +94,6 @@ jobs:
               echo "Contador sem alterações — nada a commitar."
             else
               git commit -m "chore: atualiza contador de imagens do robô [skip ci]"
-              # Tenta empurrar; se falhar por concorrência, faz rebase e tenta de novo
               for i in 1 2 3; do
                 if git push; then
                   echo "Contador salvo com sucesso."

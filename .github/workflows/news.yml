@@ -1,44 +1,138 @@
-name: Rádio RockBack FM - Notícias
+name: Robô Rádio RockBack FM
 
 on:
-  workflow_dispatch:
+  # Executa a cada 30 minutos
   schedule:
-    - cron: '0 11 * * *'
-    - cron: '0 17 * * *'
-    - cron: '0 23 * * *'
+    - cron: "*/30 * * * *"
+  # Permite execução manual pelo botão "Run workflow"
+  workflow_dispatch:
+  # Opcional: executa também em push para a branch main quando o bot for alterado
+  push:
+    branches:
+      - main
+    paths:
+      - "bot/main.py"
+      - ".github/workflows/bot.yml"
+
+# Permissão para o GITHUB_TOKEN commitar o contador de imagens de volta no repositório
+permissions:
+  contents: write
+
+# Evita execuções simultâneas sobrepostas
+concurrency:
+  group: radio-rockback-bot
+  cancel-in-progress: false
 
 jobs:
-  publicar-noticias:
+  publicar:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Baixar código
-        uses: actions/checkout@v5
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+        with:
+          # Precisa do token com permissão de escrita para o commit do contador
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
 
       - name: Configurar Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: "bot/requirements.txt"
 
       - name: Instalar dependências
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          if [ -f bot/requirements.txt ]; then
+            pip install -r bot/requirements.txt
+          else
+            pip install requests beautifulsoup4 google-genai google-auth google-auth-oauthlib google-api-python-client
+          fi
 
-      - name: Executar robô de notícias
+      - name: Verificar contador de imagens
+        run: |
+          if [ ! -f bot/image_counter.txt ]; then
+            echo "1" > bot/image_counter.txt
+            echo "Contador criado com valor inicial 1"
+          else
+            echo "Contador atual: $(cat bot/image_counter.txt)"
+          fi
+
+      - name: Rodar robô de notícias
+        working-directory: bot
         env:
-          # Blogger
+          # ===== Obrigatórios =====
           BLOGGER_BLOG_ID: ${{ secrets.BLOGGER_BLOG_ID }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
           BLOGGER_REFRESH_TOKEN: ${{ secrets.BLOGGER_REFRESH_TOKEN }}
-
-          # Gemini
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
-          # Configurações do Blog
+          # ===== Opcionais (fallback de IA) =====
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          MISTRAL_API_KEY: ${{ secrets.MISTRAL_API_KEY }}
+
+          # ===== SEO / Blog =====
           BLOG_NAME: "Rádio RockBack FM"
           BLOG_HOME_URL: "https://radiorockbackfm.blogspot.com"
+          BLOG_LOCALE: "pt_BR"
+          BLOG_TWITTER: ""
+          SEO_TITLE_SUFFIX: " | Rádio RockBack FM"
+          SEO_DESCRIPTION_MAX: "160"
+          SEO_KEYWORDS_MAX: "12"
 
-        run: python -u bot/main.py
+          # ===== Limites de execução =====
+          MAX_POSTS_PER_RUN: "1"
+          MAX_GEMINI_TEXT_CALLS_PER_RUN: "6"
+
+          # ===== Modelos de IA =====
+          GEMINI_MODEL: "gemini-3.5-flash-lite"
+          GEMINI_FALLBACK_MODEL: "gemini-3.6-flash"
+          GROQ_MODEL: "openai/gpt-oss-20b"
+          MISTRAL_MODEL: "mistral-small-latest"
+          AI_PROVIDER_TIMEOUT: "90"
+
+          # ===== Log =====
+          # Mude para "true" temporariamente se precisar depurar
+          VERBOSE_LOG: "false"
+        run: python main.py
+
+      - name: Salvar contador de imagens no repositório
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -f bot/image_counter.txt ]; then
+            git add bot/image_counter.txt
+            if git diff --staged --quiet; then
+              echo "Contador sem alterações — nada a commitar."
+            else
+              git commit -m "chore: atualiza contador de imagens do robô [skip ci]"
+              # Tenta empurrar; se falhar por concorrência, faz rebase e tenta de novo
+              for i in 1 2 3; do
+                if git push; then
+                  echo "Contador salvo com sucesso."
+                  break
+                fi
+                echo "Push falhou (tentativa $i). Fazendo pull --rebase..."
+                git pull --rebase --autostash origin "${GITHUB_REF_NAME:-main}" || true
+                sleep 3
+              done
+            fi
+          else
+            echo "Arquivo bot/image_counter.txt não encontrado — nada a commitar."
+          fi
+
+      - name: Resumo
+        if: always()
+        run: |
+          echo "### Resultado da execução do robô" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [ -f bot/image_counter.txt ]; then
+            echo "- **Próxima imagem a usar:** $(cat bot/image_counter.txt)/10" >> $GITHUB_STEP_SUMMARY
+          fi

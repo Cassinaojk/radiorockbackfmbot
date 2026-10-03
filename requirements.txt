@@ -1,8 +1,6 @@
+requests
 beautifulsoup4
-requests-oauthlib
-lxml
-google-genai>=1.71.0
-google-api-python-client
+google-genai
 google-auth
-google-auth-httplib2
 google-auth-oauthlib
+google-api-python-client

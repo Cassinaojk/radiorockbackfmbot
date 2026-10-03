@@ -70,6 +70,7 @@ SEO_KEYWORDS_MAX = int(os.getenv("SEO_KEYWORDS_MAX", "12"))
 # Limites
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "1"))
 MAX_GEMINI_TEXT_CALLS_PER_RUN = int(os.getenv("MAX_GEMINI_TEXT_CALLS_PER_RUN", "6"))
+MAX_FAILURES_PER_RUN = int(os.getenv("MAX_FAILURES_PER_RUN", "3"))
 GEMINI_MAX_RETRIES = 3
 GEMINI_RETRY_BASE_SECONDS = 4
 MAX_LINKS_PER_SOURCE = 80
@@ -1330,10 +1331,6 @@ def main():
         image_origin = f"Imagem padrão do repositório (índice {contador}/10)"
         print(f"✓ Imagem: usando imagem {contador}/10 do repositório")
 
-        # Avança o contador para a próxima publicação
-        proximo = (contador % len(IMAGENS_PADRAO)) + 1
-        salvar_contador_imagem(proximo)
-
         seo = build_seo_payload(
             article=article,
             generated=generated,
@@ -1365,6 +1362,12 @@ def main():
             ).execute()
 
             published += 1
+
+            # ===== Avança o contador APENAS após publicação bem-sucedida =====
+            proximo = (contador % len(IMAGENS_PADRAO)) + 1
+            salvar_contador_imagem(proximo)
+            print(f"✓ Imagem: contador avançado para {proximo}/10 (próxima publicação)")
+
             old_source_urls.add(normalized)
             if response.get("url"):
                 old_blog_urls.add(normalize_url(response["url"]))
@@ -1390,6 +1393,10 @@ def main():
         except Exception as exc:
             failed += 1
             print(f"⚠ Blogger: falha ao publicar ({str(exc)[:200]})")
+            # Contador NÃO avança — a mesma imagem será reaproveitada na próxima tentativa
+            if failed >= MAX_FAILURES_PER_RUN:
+                print(f"⚠ Blogger: {failed} falhas consecutivas; abortando execução para não desperdiçar chamadas de IA.")
+                break
 
     print("RESULTADO")
     print(f"Publicações: {published}")
@@ -1397,6 +1404,6 @@ def main():
     print(f"Falhas: {failed}")
 
 
-print("VERSÃO 1.1 ATIVA: imagens do repositório em sequência cíclica 1-10 | SEO automático | vídeos incorporados | Spotify após a matéria")
+print("VERSÃO 1.2 ATIVA: imagens do repositório em sequência cíclica 1-10 | contador só avança em publicação bem-sucedida | SEO automático | vídeos incorporados | Spotify após a matéria")
 
 main()

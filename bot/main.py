@@ -19,6 +19,7 @@ def print(*args, **kwargs):
         or message.startswith("Fontes encontradas:")
         or message.startswith("Novas matérias:")
         or message.startswith("Puladas:")
+        or message.startswith("Duplicadas")
         or message == "RESULTADO"
         or message.startswith("Publicações:")
         or message.startswith("Ignoradas:")
@@ -34,6 +35,8 @@ def print(*args, **kwargs):
         or message.startswith("⚠ Imagem:")
         or message.startswith("⚠ Fallback:")
         or message.startswith("⚠ Pulada:")
+        or message.startswith("⚠ Duplicada:")
+        or message.startswith("⚠ Notícia antiga:")
         or message.startswith("Erro ao consultar Blogger:")
         or message.startswith("Erro:")
     )
@@ -50,7 +53,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 1.1 (Apenas 1 imagem extra: og:image da origem, após o 2º parágrafo)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 2.0 (Filtro de Hoje + Anti-Duplicidade via API)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -75,7 +78,10 @@ GEMINI_MAX_RETRIES = 3
 GEMINI_RETRY_BASE_SECONDS = 4
 MAX_LINKS_PER_SOURCE = 80
 
-MAX_AGE_DAYS = 3650
+# ============================================================
+# CORREÇÃO 1: SÓ ACEITA NOTÍCIAS DE HOJE
+# ============================================================
+MAX_AGE_DAYS = 0 
 
 MIN_SOURCE_CHARS = 700
 MIN_SOURCE_PARAGRAPHS = 4
@@ -107,9 +113,7 @@ IMAGENS_PADRAO = [
 
 COUNTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "image_counter.txt")
 
-
 def ler_contador_imagem():
-    """Lê o contador atual. Se não existir, começa em 1."""
     try:
         with open(COUNTER_FILE, "r") as f:
             valor = int(f.read().strip())
@@ -119,15 +123,12 @@ def ler_contador_imagem():
     except (FileNotFoundError, ValueError, OSError):
         return 1
 
-
 def salvar_contador_imagem(valor):
-    """Salva o contador para a próxima execução."""
     try:
         with open(COUNTER_FILE, "w") as f:
             f.write(str(valor))
     except Exception as e:
         print(f"⚠ Imagem: não foi possível salvar o contador: {e}")
-
 
 # ===== Filtro de Rock/Metal =====
 ROCK_STRONG_TERMS = (
@@ -187,7 +188,6 @@ def is_rock_related(article=None, generated=None, raw_text=""):
 def is_rock_article(article):
     return is_rock_related(article=article)
 
-
 def quick_rock_prefilter(article):
     title = _rock_norm(article.get("title", ""))
     head = _rock_norm(article.get("text", "")[:400])
@@ -202,7 +202,6 @@ def quick_rock_prefilter(article):
         return True, ""
 
     return False, "sem termos de rock/metal fortes no título/trecho inicial"
-
 
 # ===== Fontes =====
 SOURCES = [
@@ -239,7 +238,6 @@ SHARE_DOMAINS = (
     "t.me/share", "linkedin.com/share",
 )
 
-# ===== Whitelist de plataformas de vídeo =====
 VIDEO_HOSTS = (
     "youtube.com/embed/",
     "youtube.com/watch",
@@ -259,7 +257,7 @@ VIDEO_HOSTS = (
 )
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/1.1)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/2.0)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -271,7 +269,6 @@ def normalize_url(u):
     u = u.strip().split("#")[0]
     u = u.rstrip("/")
     return u
-
 
 def bad_url(u):
     u = normalize_url(u).lower()
@@ -285,7 +282,6 @@ def bad_url(u):
     if re.search(r"\.(pdf|jpg|jpeg|png|gif|webp|svg|xml|zip)$", path):
         return True
     return False
-
 
 def soup(url, xml=False):
     try:
@@ -305,7 +301,6 @@ def soup(url, xml=False):
         print("Erro:", e)
         return None
 
-
 def date_parse(v):
     if not v:
         return None
@@ -324,7 +319,6 @@ def date_parse(v):
         except Exception:
             pass
     return None
-
 
 def article_date(x):
     selectors = (
@@ -368,9 +362,7 @@ def article_date(x):
                 return d
     return None
 
-
 def image_original(x):
-    """Extrai APENAS a imagem de destaque (og:image) da postagem original."""
     for sel in (
         'meta[property="og:image"]',
         'meta[property="og:image:secure_url"]',
@@ -386,7 +378,6 @@ def image_original(x):
             if u.startswith(("http://", "https://")):
                 return u
     return ""
-
 
 def videos(x):
     BLOCK_HOSTS = (
@@ -430,7 +421,6 @@ def videos(x):
             out.append(u)
     return out[:3]
 
-
 # ============================================================
 # ARTIGO
 # ============================================================
@@ -457,10 +447,10 @@ def get_article(url):
 
     d = article_date(x)
     if d:
-        print("Data encontrada:", d)
+        # FILTRO RÍGIDO DE DATA
         age = (datetime.now() - d).total_seconds() / 86400
         if age > MAX_AGE_DAYS:
-            print(f"Notícia muito antiga ({age:.1f} dias). Pulando.")
+            print(f"⚠ Notícia antiga (publicada em {d.strftime('%d/%m/%Y')}). Pulando.")
             return None
     else:
         print("Data não identificada. Aceitando para análise.")
@@ -485,20 +475,12 @@ def get_article(url):
         return None
 
     vv = videos(x)
-
-    # ÚNICA imagem inline permitida: a og:image da origem, sempre em after_paragraph=2
     inline_imgs = []
     if img:
         inline_imgs = [{"url": img, "after_paragraph": 2, "is_main": True}]
 
     print("Notícia encontrada:", title)
     print("Texto extraído:", len(text), "caracteres")
-    if vv:
-        print(f"Vídeos válidos encontrados: {len(vv)}")
-    if inline_imgs:
-        print(f"✓ Imagem de destaque da origem será inserida após o 2º parágrafo: {img[:90]}")
-    else:
-        print("⚠ Postagem original sem og:image — post seguirá sem imagem no corpo.")
 
     return {
         "url": normalize_url(url),
@@ -509,7 +491,6 @@ def get_article(url):
         "videos": vv,
         "inline_images": inline_imgs,
     }
-
 
 def links(source):
     out = []
@@ -560,7 +541,6 @@ def links(source):
     print(f"Links encontrados em {source['nome']}: {len(out)}")
     return out[:MAX_LINKS_PER_SOURCE]
 
-
 def blogger():
     credentials = Credentials(
         None,
@@ -572,10 +552,10 @@ def blogger():
     )
     return build("blogger", "v3", credentials=credentials, cache_discovery=False)
 
-
 def existing(api, show_log=True):
     blog_urls = set()
     source_urls = set()
+    titles = []
     token = None
     try:
         while True:
@@ -589,8 +569,11 @@ def existing(api, show_log=True):
             data = api.posts().list(**kwargs).execute()
             for post in data.get("items", []):
                 post_url = normalize_url(post.get("url", ""))
+                title = (post.get("title") or "").strip()
                 if post_url:
                     blog_urls.add(post_url)
+                if title:
+                    titles.append(title)
                 content = post.get("content", "") or ""
                 for match in re.findall(
                     r'href=["\'](https?://[^"\']+)["\']', content, flags=re.I
@@ -609,8 +592,94 @@ def existing(api, show_log=True):
     if show_log:
         print("Posts existentes no Blogger:", len(blog_urls))
         print("Fontes já registradas:", len(source_urls))
-    return blog_urls, source_urls
+    return blog_urls, source_urls, titles
 
+# ============================================================
+# ANTI-DUPLICIDADE
+# ============================================================
+
+_COMPARE_STOPWORDS = {
+    "a", "o", "as", "os", "de", "da", "do", "das", "dos", "e", "em",
+    "um", "uma", "uns", "umas", "para", "por", "com", "no", "na",
+    "nos", "nas", "que", "se", "ao", "aos", "sua", "seu", "suas",
+    "seus", "mais", "como", "sobre", "entre", "apos", "ate", "ja",
+    "nao", "muito", "bem", "ainda", "tambem", "so", "esse", "essa",
+    "este", "esta", "isso", "aquilo", "ele", "ela", "eles", "elas",
+    "vai", "vem", "foi", "sao", "estao", "tem", "ter", "terao",
+    "eh", "ser", "sera", "novo", "nova", "novos", "novas",
+    "lanca", "lancou", "lancam", "lancar", "anuncia", "anunciou",
+    "divulga", "divulgou", "revela", "revelou", "confirma", "confirmou",
+    "veja", "confira", "saiba", "assista", "leia", "chega", "chegou",
+    "radio", "rockback", "rock", "noticia", "noticias", "blog", "materia",
+    "hoje", "agora", "ultima", "ultimas", "ultimo", "ultimos",
+    "video", "videos", "foto", "fotos", "imagem", "imagens",
+    "the", "of", "to", "in", "and", "or", "on", "at", "for",
+    "with", "from", "by",
+}
+
+def _compare_normalize(text):
+    text = unicodedata.normalize("NFKD", str(text or ""))
+    text = "".join(c for c in text if not unicodedata.combining(c)).lower()
+    text = re.sub(r"[^a-z0-9\s]", " ", text)
+    words = [w for w in text.split() if len(w) > 1 and w not in _COMPARE_STOPWORDS]
+    return set(words)
+
+def _title_similarity(words_a, words_b):
+    if not words_a or not words_b:
+        return 0.0
+    inter = words_a & words_b
+    union = words_a | words_b
+    return len(inter) / len(union) if union else 0.0
+
+def check_blogger_for_duplicate(api, article_title):
+    """
+    CORREÇÃO 2: Usa a API de busca do Blogger para ver se já existe
+    um post com as palavras-chave principais da notícia.
+    """
+    keywords = _compare_normalize(article_title)
+    if not keywords:
+        return False, ""
+    
+    search_terms = sorted(list(keywords), key=len, reverse=True)[:2]
+    query = " ".join(search_terms)
+    
+    try:
+        response = api.posts().search(
+            blogId=BLOGGER_BLOG_ID,
+            q=query,
+            fetchBodies=False,
+            maxResults=5
+        ).execute()
+        
+        for post in response.get("items", []):
+            post_title = post.get("title", "")
+            if _title_similarity(
+                _compare_normalize(article_title),
+                _compare_normalize(post_title)
+            ) >= 0.50:
+                return True, post_title
+            if any(term in _rock_norm(post_title) for term in search_terms):
+                return True, post_title
+                
+    except Exception as e:
+        print(f"⚠ Busca API: erro ao verificar duplicata: {e}")
+        
+    return False, ""
+
+def is_duplicate_local(new_title, existing_titles):
+    """Verifica se o título gerado é muito similar a algum título já publicado."""
+    new_words = _compare_normalize(new_title)
+    if not new_words:
+        return False, ""
+    
+    for old_title in existing_titles:
+        old_words = _compare_normalize(old_title)
+        if not old_words:
+            continue
+        sim = _title_similarity(new_words, old_words)
+        if sim >= 0.55:
+            return True, old_title
+    return False, ""
 
 # ============================================================
 # IA
@@ -622,7 +691,6 @@ def is_transient_gemini_error(exc):
         "503", "UNAVAILABLE", "429", "RESOURCE_EXHAUSTED",
         "500", "502", "504", "TIMEOUT",
     ))
-
 
 def gemini_request(client, model, prompt):
     last_error = None
@@ -645,16 +713,13 @@ def gemini_request(client, model, prompt):
             time.sleep(delay)
     raise last_error
 
-
 def norm_words(text):
     text = unicodedata.normalize("NFKD", text or "")
     text = "".join(c for c in text if not unicodedata.combining(c)).lower()
     return re.findall(r"[a-z0-9]+", text)
 
-
 def ngrams(words, n=8):
     return {" ".join(words[i:i+n]) for i in range(max(0, len(words)-n+1))}
-
 
 def longest_common_phrase(src_words, out_words, min_words=15):
     if not src_words or not out_words:
@@ -673,7 +738,6 @@ def longest_common_phrase(src_words, out_words, min_words=15):
                 return best
     return best
 
-
 def originality_check(source_text, generated_text):
     src = norm_words(source_text)
     out = norm_words(generated_text)
@@ -689,7 +753,6 @@ def originality_check(source_text, generated_text):
         return False, f"sobreposição 8-gram alta ({overlap:.3f})"
     return True, "OK"
 
-
 def _ai_extract_text(provider, response):
     choices = response.get("choices") or []
     if not choices:
@@ -704,14 +767,12 @@ def _ai_extract_text(provider, response):
         )
     return str(content).strip()
 
-
 def _provider_is_quota_error(status_code, body):
     text = str(body or "").upper()
     return status_code == 429 or any(x in text for x in (
         "RESOURCE_EXHAUSTED", "RATE LIMIT", "RATE_LIMIT", "QUOTA",
         "TOO MANY REQUESTS", "DAILY LIMIT", "LIMIT EXCEEDED",
     ))
-
 
 def _call_http_provider(provider, api_key, model, prompt):
     endpoint = {
@@ -745,7 +806,6 @@ def _call_http_provider(provider, api_key, model, prompt):
     except Exception as exc:
         raise RuntimeError(f"Resposta JSON inválida do {provider}: {exc}")
 
-
 def _build_ai_providers():
     providers = []
     if GEMINI_API_KEY:
@@ -758,18 +818,15 @@ def _build_ai_providers():
         providers.append(("mistral", MISTRAL_API_KEY, MISTRAL_MODEL))
     return providers
 
-
 def _provider_request(provider, api_key, model, prompt):
     if provider.startswith("gemini"):
         return gemini_request(genai.Client(api_key=api_key), model, prompt)
     return _call_http_provider(provider, api_key, model, prompt)
 
-
 def _provider_text(provider, response):
     if provider.startswith("gemini"):
         return (getattr(response, "text", None) or "").strip()
     return _ai_extract_text(provider, response)
-
 
 def _is_quota_exception(exc):
     msg = str(exc).upper()
@@ -777,7 +834,6 @@ def _is_quota_exception(exc):
         "429", "RESOURCE_EXHAUSTED", "QUOTA", "RATE LIMIT", "RATE_LIMIT",
         "TOO MANY REQUESTS", "DAILY LIMIT", "LIMIT EXCEEDED",
     ))
-
 
 def gemini(article, client=None):
     global gemini_calls, gemini_quota_hit, _ai_config_logged
@@ -940,14 +996,12 @@ construções das frases. Não repita sequências da fonte.
         print("⚠ IA: nenhum provedor disponível conseguiu gerar a matéria")
     return None
 
-
 # ============================================================
 # SEO AUTOMÁTICO
 # ============================================================
 
 def _strip_html(text):
     return re.sub(r"\s+", " ", BeautifulSoup(str(text or ""), "html.parser").get_text(" ", strip=True)).strip()
-
 
 def _truncate(text, limit):
     text = re.sub(r"\s+", " ", str(text or "")).strip()
@@ -958,15 +1012,6 @@ def _truncate(text, limit):
     if last_space > limit * 0.6:
         cut = cut[:last_space]
     return cut.rstrip(" ,;:-") + "..."
-
-
-def _slugify(text):
-    text = unicodedata.normalize("NFKD", str(text or ""))
-    text = "".join(c for c in text if not unicodedata.combining(c))
-    text = re.sub(r"[^\w\s-]", "", text.lower())
-    text = re.sub(r"[\s_-]+", "-", text).strip("-")
-    return text
-
 
 def build_seo_payload(article, generated, final_image="", image_origin=""):
     titulo_base = str(generated.get("titulo", "")).strip()
@@ -1033,28 +1078,18 @@ def build_seo_payload(article, generated, final_image="", image_origin=""):
     schema = {
         "@context": "https://schema.org",
         "@type": "NewsArticle",
-        "mainEntityOfPage": {
-            "@type": "WebPage",
-            "@id": canonical,
-        },
+        "mainEntityOfPage": {"@type": "WebPage", "@id": canonical},
         "headline": titulo_base[:110],
         "description": description,
         "image": [image_url] if image_url else [],
         "datePublished": published,
         "dateModified": date_modified,
-        "author": {
-            "@type": "Organization",
-            "name": BLOG_NAME,
-            "url": BLOG_HOME_URL,
-        },
+        "author": {"@type": "Organization", "name": BLOG_NAME, "url": BLOG_HOME_URL},
         "publisher": {
             "@type": "Organization",
             "name": BLOG_NAME,
             "url": BLOG_HOME_URL,
-            "logo": {
-                "@type": "ImageObject",
-                "url": image_url or f"{BLOG_HOME_URL}/favicon.ico",
-            },
+            "logo": {"@type": "ImageObject", "url": image_url or f"{BLOG_HOME_URL}/favicon.ico"},
         },
         "articleSection": categoria_seo or ("Rock" if is_rock_related(article=article, generated=generated) else "Notícias de Rock"),
         "keywords": keywords,
@@ -1078,23 +1113,11 @@ def build_seo_payload(article, generated, final_image="", image_origin=""):
         ],
     }
 
-    safe_title = (
-        title.replace("&", "&amp;").replace("<", "&lt;")
-        .replace(">", "&gt;").replace('"', "&quot;")
-    )
-    safe_desc = (
-        description.replace("&", "&amp;").replace("<", "&lt;")
-        .replace(">", "&gt;").replace('"', "&quot;")
-    )
-    safe_keywords = (
-        keywords.replace("&", "&amp;").replace('"', "&quot;")
-    )
-    safe_canonical = (
-        canonical.replace("&", "&amp;").replace('"', "&quot;")
-    )
-    safe_image = (
-        (image_url or "").replace("&", "&amp;").replace('"', "&quot;")
-    )
+    safe_title = title.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    safe_desc = description.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;").replace('"', "&quot;")
+    safe_keywords = keywords.replace("&", "&amp;").replace('"', "&quot;")
+    safe_canonical = canonical.replace("&", "&amp;").replace('"', "&quot;")
+    safe_image = (image_url or "").replace("&", "&amp;").replace('"', "&quot;")
     twitter_site = f'<meta name="twitter:site" content="{BLOG_TWITTER}">' if BLOG_TWITTER else ""
 
     json_ld_article = json.dumps(schema, ensure_ascii=False)
@@ -1156,28 +1179,19 @@ def build_seo_payload(article, generated, final_image="", image_origin=""):
         "categoria_seo": categoria_seo,
     }
 
-
 def build_seo_head_for_blogger(seo):
     return seo.get("html_head", "")
-
 
 # ============================================================
 # HTML DO POST
 # ============================================================
 
 def _render_inline_image_html(img_url, alt_text):
-    """Renderiza uma imagem inline CENTRALIZADA no corpo do post."""
-    safe_img = (
-        (img_url or "")
-        .replace("&", "&amp;")
-        .replace('"', "&quot;")
-    )
+    safe_img = (img_url or "").replace("&", "&amp;").replace('"', "&quot;")
     safe_alt = (
         (alt_text or "")
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        .replace("&", "&amp;").replace("<", "&lt;")
+        .replace(">", "&gt;").replace('"', "&quot;")
     )
     if not safe_img:
         return ""
@@ -1192,31 +1206,21 @@ def _render_inline_image_html(img_url, alt_text):
         '</p>'
     )
 
-
 def html(article, generated, final_image="", image_origin="", seo=None):
     seo = seo or {}
     titulo_exibicao = seo.get("titulo_base") or generated.get("titulo", "")
     safe_title = (
         titulo_exibicao
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
+        .replace("&", "&amp;").replace("<", "&lt;")
+        .replace(">", "&gt;").replace('"', "&quot;")
     )
 
     image_url = final_image or article["image"]
     safe_image = image_url.replace("&", "&amp;").replace('"', "&quot;")
-
-    safe_source_url = (
-        article["url"]
-        .replace("&", "&amp;")
-        .replace('"', "&quot;")
-    )
-
+    safe_source_url = article["url"].replace("&", "&amp;").replace('"', "&quot;")
     seo_head = build_seo_head_for_blogger(seo)
 
     content = []
-
     if seo_head:
         content.append(seo_head)
 
@@ -1238,9 +1242,7 @@ def html(article, generated, final_image="", image_origin="", seo=None):
         if paragraph:
             article_paragraphs.append(paragraph)
 
-    # --- corpo da matéria com a ÚNICA imagem inline intercalada (após o 2º parágrafo) ---
-    inline_images = list(article.get("inline_images") or [])
-    inline_images = inline_images[:1] # Garantia: apenas uma imagem
+    inline_images = list(article.get("inline_images") or [])[:1]
     inline_images.sort(key=lambda item: item.get("after_paragraph", 9999))
 
     body_parts = []
@@ -1257,11 +1259,9 @@ def html(article, generated, final_image="", image_origin="", seo=None):
             target = 0
         if target > total_paras:
             target = total_paras
-
         while para_idx < target:
             body_parts.append(f"<p>{article_paragraphs[para_idx]}</p>")
             para_idx += 1
-
         rendered = _render_inline_image_html(img_info.get("url", ""), titulo_exibicao)
         if rendered:
             body_parts.append(rendered)
@@ -1284,12 +1284,8 @@ def html(article, generated, final_image="", image_origin="", seo=None):
             'frameborder="0" '
             'allow="accelerometer; autoplay; clipboard-write; encrypted-media; '
             'gyroscope; picture-in-picture; web-share" '
-            'allowfullscreen '
-            'loading="lazy" '
-            'title="Vídeo da matéria">'
-            '</iframe>'
-            '</div>'
-            '</div>'
+            'allowfullscreen loading="lazy" title="Vídeo da matéria">'
+            '</iframe></div></div>'
         )
 
     spotify_block = (
@@ -1324,17 +1320,18 @@ def html(article, generated, final_image="", image_origin="", seo=None):
 
     return "\n".join(content) + "\n" + source_marker + image_marker + seo_marker
 
-
 def main():
     print("Fontes: Rock Notícias + Whiplash.net | Imagens do repositório (sequência 1-10)")
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     api = blogger()
-    old_blog_urls, old_source_urls = existing(api)
+    
+    old_blog_urls, old_source_urls, existing_titles = existing(api)
 
     candidates = []
     candidate_urls = set()
     source_counts = {}
     prefiltered_out = 0
+    pre_duplicates = 0
 
     for source in SOURCES:
         source_links = links(source)
@@ -1353,19 +1350,32 @@ def main():
                     prefiltered_out += 1
                     print(f"⚠ Pulada (pré-filtro): {article['title'][:70]} — {reason}")
                     continue
+
+                # ============================================================
+                # VERIFICAÇÃO VIA API NO PRÉ-FILTRO
+                # ============================================================
+                is_dup_api, dup_title_api = check_blogger_for_duplicate(api, article["title"])
+                if is_dup_api:
+                    pre_duplicates += 1
+                    print(f"⚠ Duplicada (API): «{article['title'][:60]}» já existe como «{dup_title_api[:60]}» — pulando.")
+                    continue
+
                 candidate_urls.add(normalized)
                 candidates.append(article)
 
     source_summary = " | ".join(f"{name}: {count}" for name, count in source_counts.items())
     print(f"Fontes encontradas: {source_summary}")
-    print(f"Puladas: {prefiltered_out}")
+    print(f"Puladas: {prefiltered_out + pre_duplicates}")
+    if pre_duplicates:
+        print(f"⚠ Duplicadas por conteúdo (pré-IA): {pre_duplicates}")
 
     candidates.sort(key=lambda a: a["date"] or datetime.min, reverse=True)
-    print(f"Novas matérias de rock/metal: {len(candidates)}")
+    print(f"Novas matérias de rock/metal de hoje: {len(candidates)}")
 
     published = 0
     failed = 0
     ignored = 0
+    post_duplicates = 0
 
     while candidates and published < MAX_POSTS_PER_RUN:
         article = candidates.pop(0)
@@ -1385,6 +1395,14 @@ def main():
                 break
             continue
 
+        # VERIFICAÇÃO PÓS-IA LOCAL
+        is_dup_local, dup_title_local = is_duplicate_local(generated.get("titulo", ""), existing_titles)
+        if is_dup_local:
+            post_duplicates += 1
+            ignored += 1
+            print(f"⚠ Duplicada (IA): {generated.get('titulo','')[:70]} — já existe «{dup_title_local[:60]}»")
+            continue
+
         # ===== IMAGEM PADRÃO DO REPOSITÓRIO (sequência cíclica 1-10) =====
         contador = ler_contador_imagem()
         final_image = IMAGENS_PADRAO[contador - 1]
@@ -1399,11 +1417,8 @@ def main():
         )
         print(f"✓ SEO: título final = {seo['title'][:90]}")
         print(f"✓ SEO: description = {seo['description'][:120]}...")
-        print(f"✓ SEO: keywords = {seo['keywords'][:160]}")
-        print(f"✓ Labels: {', '.join(seo['labels'])}")
 
         try:
-            # CORREÇÃO AQUI: Enviando a imagem do GitHub como Imagem de Destaque Oficial do Blogger
             post_body = {
                 "title": seo["title"].strip(),
                 "content": html(article, generated, final_image=final_image,
@@ -1424,13 +1439,14 @@ def main():
             ).execute()
 
             published += 1
+            old_source_urls.add(normalized)
+            existing_titles.append(seo["title"])
 
             # ===== Avança o contador APENAS após publicação bem-sucedida =====
             proximo = (contador % len(IMAGENS_PADRAO)) + 1
             salvar_contador_imagem(proximo)
             print(f"✓ Imagem: contador avançado para {proximo}/10 (próxima publicação)")
 
-            old_source_urls.add(normalized)
             if response.get("url"):
                 old_blog_urls.add(normalize_url(response["url"]))
                 try:
@@ -1455,17 +1471,17 @@ def main():
         except Exception as exc:
             failed += 1
             print(f"⚠ Blogger: falha ao publicar ({str(exc)[:200]})")
-            # Contador NÃO avança — a mesma imagem será reaproveitada na próxima tentativa
             if failed >= MAX_FAILURES_PER_RUN:
-                print(f"⚠ Blogger: {failed} falhas consecutivas; abortando execução para não desperdiçar chamadas de IA.")
+                print(f"⚠ Blogger: {failed} falhas consecutivas; abortando execução.")
                 break
 
     print("RESULTADO")
     print(f"Publicações: {published}")
     print(f"Ignoradas: {ignored}")
     print(f"Falhas: {failed}")
+    if post_duplicates:
+        print(f"⚠ Duplicadas detectadas após IA: {post_duplicates}")
 
-
-print("VERSÃO 1.1 ATIVA: apenas UMA imagem no corpo (og:image da origem, após o 2º parágrafo) | destaque do GitHub intacto no topo | SEO | vídeos | Spotify")
+print("VERSÃO 2.0 ATIVA: Filtro de Hoje + Bloqueio via API + Bloqueio Local | SEO | Vídeos | Spotify")
 
 main()

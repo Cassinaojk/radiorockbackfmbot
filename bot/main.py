@@ -37,6 +37,7 @@ def print(*args, **kwargs):
         or message.startswith("⚠ Pulada:")
         or message.startswith("⚠ Duplicada:")
         or message.startswith("⚠ Notícia antiga:")
+        or message.startswith("⚠ Pulada (post institucional")
         or message.startswith("Erro ao consultar Blogger:")
         or message.startswith("Erro:")
     )
@@ -53,7 +54,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 2.0 (Filtro de Hoje + Anti-Duplicidade via API)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 2.1 (Filtro de Hoje + Anti-Duplicidade + Bloqueio Institucional)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -96,6 +97,30 @@ MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
 GROQ_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-20b").strip()
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
 AI_PROVIDER_TIMEOUT = int(os.getenv("AI_PROVIDER_TIMEOUT", "90"))
+
+# ============================================================
+# CORREÇÃO 3: FILTRO DE POSTS INSTITUCIONAIS / GENÉRICOS
+# ============================================================
+TITLE_BLOCK_TERMS = (
+    "atualizações recentes", "atualizacoes recentes",
+    "últimas atualizações", "ultimas atualizacoes",
+    "novidades da", "novidades do",
+    "extreme sound records", "sound records",
+    "nossa equipe", "nossa redação", "nossa redacao",
+    "sobre nós", "sobre nos", "quem somos",
+    "contato", "fale conosco",
+    "política de privacidade", "politica de privacidade",
+    "termos de uso",
+    "anuncie", "publicidade",
+    "parceria", "parcerias",
+    "comunicado", "comunicados",
+    "expediente",
+    "nota da redação", "nota da redacao",
+    "retratação", "retratacao",
+    "agradecimento", "agradecimentos",
+    "feliz natal", "feliz ano novo",
+    "boas festas", "boas férias",
+)
 
 # ===== IMAGENS PADRÃO DO REPOSITÓRIO (sequência cíclica 1-10) =====
 IMAGENS_PADRAO = [
@@ -190,6 +215,11 @@ def is_rock_article(article):
 
 def quick_rock_prefilter(article):
     title = _rock_norm(article.get("title", ""))
+    
+    # ===== FILTRO DE TÍTULOS INSTITUCIONAIS / GENÉRICOS =====
+    if any(term in title for term in TITLE_BLOCK_TERMS):
+        return False, "post institucional/genérico (atualizações do site, comunicado, etc.)"
+    
     head = _rock_norm(article.get("text", "")[:400])
     combined = f"{title} {head}"
 
@@ -257,7 +287,7 @@ VIDEO_HOSTS = (
 )
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/2.0)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/2.1)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -433,6 +463,12 @@ def get_article(url):
     n = x.find("h1") or x.find("title")
     title = re.sub(r"\s+", " ", n.get_text(" ", strip=True) if n else "").strip()
     if not title:
+        return None
+
+    # ===== FILTRO DE TÍTULOS INSTITUCIONAIS / GENÉRICOS =====
+    title_norm = _rock_norm(title)
+    if any(term in title_norm for term in TITLE_BLOCK_TERMS):
+        print(f"⚠ Pulada (post institucional/genérico): {title[:70]}")
         return None
 
     title_lower = title.lower()
@@ -1321,7 +1357,7 @@ def html(article, generated, final_image="", image_origin="", seo=None):
     return "\n".join(content) + "\n" + source_marker + image_marker + seo_marker
 
 def main():
-    print("Fontes: Rock Notícias + Whiplash.net | Imagens do repositório (sequência 1-10)")
+    print("Fontes: Rock Notícias + Whiplash.net | Imagens do repositório (sequência 1-10) | Bloqueio institucional")
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
     api = blogger()
     
@@ -1482,6 +1518,6 @@ def main():
     if post_duplicates:
         print(f"⚠ Duplicadas detectadas após IA: {post_duplicates}")
 
-print("VERSÃO 2.0 ATIVA: Filtro de Hoje + Bloqueio via API + Bloqueio Local | SEO | Vídeos | Spotify")
+print("VERSÃO 2.1 ATIVA: Filtro de Hoje + Bloqueio via API + Bloqueio Local + Bloqueio Institucional | SEO | Vídeos | Spotify")
 
 main()

@@ -1403,11 +1403,13 @@ def main():
         print(f"✓ Labels: {', '.join(seo['labels'])}")
 
         try:
+            # CORREÇÃO AQUI: Enviando a imagem do GitHub como Imagem de Destaque Oficial do Blogger
             post_body = {
                 "title": seo["title"].strip(),
                 "content": html(article, generated, final_image=final_image,
                                 image_origin=image_origin, seo=seo),
                 "labels": seo["labels"],
+                "images": [{"url": final_image}]
             }
 
             try:

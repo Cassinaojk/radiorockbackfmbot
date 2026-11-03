@@ -1,6 +1,15 @@
-# Rádio RockBack FM — Robô de Notícias 1.0
+# Rádio RockBack FM — Robô de Notícias 2.0
 
 Robô GitHub Actions para coletar notícias de fontes de rock/metal, gerar matérias originais em português do Brasil com IA e publicar no Blogger.
+
+## Principais mudanças da versão 2.0
+
+- **Filtro de data rigoroso**: o robô só aceita notícias publicadas **hoje**. Qualquer notícia de ontem ou mais antiga é descartada automaticamente.
+- **Anti-duplicidade em duas camadas**:
+  1. **Antes da IA**: consulta a API de busca do Blogger para verificar se já existe um post com as palavras-chave da notícia. Se sim, pula para a próxima.
+  2. **Depois da IA**: compara o título gerado com os títulos já publicados (similaridade Jaccard ≥ 0.55).
+- **Sequência de imagens do repositório (1-10)**: a imagem de destaque agora vem de uma pasta no GitHub, alternando em ciclo. O contador só avança quando a publicação é bem-sucedida.
+- **Imagem oficial no Blogger**: o post envia `"images": [{"url": ...}]` para que a imagem do GitHub apareça como destaque na capa do blog.
 
 ## Fontes ativas (2)
 
@@ -22,7 +31,7 @@ Robô GitHub Actions para coletar notícias de fontes de rock/metal, gerar maté
 ## Publicação
 - Até **1 matéria por execução** (`MAX_POSTS_PER_RUN=1`).
 - Deduplicação por URL da fonte e por URL do blog.
-- A imagem do post é a **imagem original** extraída da notícia da fonte.
+- A imagem de destaque é escolhida da sequência do repositório (`bot/imagens/Imagens Rock Flashback (1..10).png`), alternando ciclicamente.
 - Vídeos incorporados (YouTube, Vimeo, etc.) são extraídos automaticamente da fonte.
 - A fonte fica registrada em comentário HTML invisível (`RADIO_ROCKBACK_FM_SOURCE_URL`).
 - Spotify embed aparece após a matéria.
@@ -31,6 +40,10 @@ Robô GitHub Actions para coletar notícias de fontes de rock/metal, gerar maté
 O robô usa uma lista de **termos fortes** (`rock`, `metal`, `heavy metal`, `hard rock`, `punk`, `grunge`, `indie`, `alternativo`, `progressivo`, `glam`, `new metal`, etc.) e **termos de suporte** (`cantor`, `banda`, `guitarrista`, `baixista`, `baterista`, `gravadora`, `compositor`, etc.) para decidir se uma notícia é de rock/metal.
 - Se houver dúvida, a regra é **publicar**.
 - Posts de rock recebem a label `Rock`; os demais ficam apenas com `Notícias` e `Rádio RockBack FM`.
+
+## Filtro de data
+- **`MAX_AGE_DAYS = 0`**: só aceita notícias publicadas **hoje**.
+- Se a data da notícia não puder ser identificada, o robô ainda aceita para análise (mas a API de busca e a verificação de título depois bloqueiam duplicatas).
 
 ## Originalidade
 A verificação bloqueia apenas sinais fortes de reprodução literal:
@@ -53,5 +66,8 @@ A verificação bloqueia apenas sinais fortes de reprodução literal:
 - `VERBOSE_LOG=true` — ativa log detalhado
 - `MAX_POSTS_PER_RUN` — padrão `1`
 - `MAX_GEMINI_TEXT_CALLS_PER_RUN` — padrão `6`
+- `MAX_FAILURES_PER_RUN` — padrão `3` (aborta se houver muitas falhas consecutivas)
 - `GEMINI_MODEL` / `GEMINI_FALLBACK_MODEL`
 - `GROQ_MODEL` / `MISTRAL_MODEL`
+
+## Estrutura de arquivos

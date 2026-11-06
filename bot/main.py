@@ -24,6 +24,10 @@ def print(*args, **kwargs):
         or message.startswith("⚠ Notícia antiga:")
         or message.startswith("⚠ Limite diário:")
         or message.startswith("Erro:")
+        or message.startswith("Fontes encontradas:")
+        or message.startswith("Puladas:")
+        or message.startswith("Novas matérias")
+        or message.startswith("MAX_AGE_DAYS")
     )
     if important:
         return _original_print(*args, **kwargs)
@@ -35,7 +39,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 2.2 (Anti-Duplicidade + 1 Post/Dia)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.0 (Filtro Flexível + Modelo IA 3.5 + Scraping)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -55,18 +59,19 @@ SEO_KEYWORDS_MAX = int(os.getenv("SEO_KEYWORDS_MAX", "12"))
 # Limites
 MAX_POSTS_PER_RUN = int(os.getenv("MAX_POSTS_PER_RUN", "1"))
 MAX_GEMINI_TEXT_CALLS_PER_RUN = int(os.getenv("MAX_GEMINI_TEXT_CALLS_PER_RUN", "6"))
-MAX_FAILURES_PER_RUN = int(os.getenv("MAX_FAILURES_PER_RUN", "3"))
 GEMINI_MAX_RETRIES = 3
 GEMINI_RETRY_BASE_SECONDS = 4
-MAX_LINKS_PER_SOURCE = 80
-MAX_AGE_DAYS = 0 
-MIN_SOURCE_CHARS = 700
-MIN_SOURCE_PARAGRAPHS = 4
+MAX_LINKS_PER_SOURCE = 120
+
+# Filtro de data flexível (Hoje + 3 dias anteriores)
+MAX_AGE_DAYS = int(os.getenv("MAX_AGE_DAYS", "4")) 
+MIN_SOURCE_CHARS = 250
+MIN_SOURCE_PARAGRAPHS = 1
 TIMEOUT = 25
 
-# Modelos de IA
-GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-1.5-pro")
+# Modelos de IA Atualizados
+GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
@@ -74,7 +79,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip()
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
 AI_PROVIDER_TIMEOUT = int(os.getenv("AI_PROVIDER_TIMEOUT", "90"))
 
-# ===== Filtros =====
+# ===== Filtros de Título =====
 TITLE_BLOCK_TERMS = (
     "atualizações recentes", "atualizacoes recentes", "últimas atualizações", "ultimas atualizacoes",
     "novidades da", "novidades do", "extreme sound records", "sound records",
@@ -144,7 +149,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/2.2)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.0)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -278,6 +283,7 @@ def get_article(url):
             print(f"⚠ Notícia antiga (publicada em {d.strftime('%d/%m/%Y')}). Pulando.")
             return None
     else:
+        print("Data não identificada. Aceitando para análise.")
         d = datetime.now()
 
     img = image_original(x) or ""
@@ -287,6 +293,7 @@ def get_article(url):
         t = re.sub(r"\s+", " ", p.get_text(" ", strip=True))
         if len(t) >= 35: paragraphs.append(t)
     text = "\n\n".join(paragraphs)
+    
     if len(text) < MIN_SOURCE_CHARS or len(paragraphs) < MIN_SOURCE_PARAGRAPHS: return None
     
     vv = videos(x)
@@ -302,6 +309,7 @@ def links(source):
         if h.endswith("." + source_host): return True
         hn = h.replace("www.","",1); sn = source_host.replace("www.","",1)
         return hn == sn or hn.endswith("." + sn)
+        
     for feed in source["feeds"]:
         x = soup(feed, True)
         if not x: continue
@@ -311,12 +319,19 @@ def links(source):
             u = normalize_url(n.get("href") or n.get_text(strip=True) or "")
             if not u or bad_url(u) or not host_matches(u): continue
             if u not in seen: seen.add(u); out.append(u)
+            
+    rss_count = len(out)
+    
     x = soup(source["url"])
     if x:
         for a in x.find_all("a", href=True):
             u = normalize_url(urljoin(source["url"], a["href"]))
             if bad_url(u) or not host_matches(u): continue
-            if u not in seen: seen.add(u); out.append(u)
+            path = urlparse(u).path.strip("/")
+            if path.count("/") >= 1 and len(path) > 10:
+                if u not in seen: seen.add(u); out.append(u)
+                
+    print(f"Links em {source['nome']}: {len(out)} (RSS: {rss_count}, HTML: {len(out)-rss_count})")
     return out[:MAX_LINKS_PER_SOURCE]
 
 def blogger():
@@ -386,15 +401,15 @@ def check_published_today(api):
     """Verifica se já houve publicação hoje."""
     try:
         now_utc = datetime.now(timezone.utc)
-        # Considera o fuso do Brasil (UTC-3)
         br_tz = timezone(timedelta(hours=-3))
         today_br = now_utc.astimezone(br_tz).strftime('%Y-%m-%d')
         
+        # Correção: "PUBLISHED" deve ser em maiúsculo
         response = api.posts().list(
             blogId=BLOGGER_BLOG_ID,
             maxResults=10,
             fetchBodies=False,
-            orderBy="published"
+            orderBy="PUBLISHED"
         ).execute()
         
         for post in response.get("items", []):
@@ -655,6 +670,7 @@ def html(article, generated, final_image="", image_origin="", seo=None):
 # ===== MAIN =====
 def main():
     print("Fontes: Rock Notícias + Whiplash.net | Anti-Duplicidade Textual | Limite de 1 post por dia")
+    print(f"MAX_AGE_DAYS configurado: {MAX_AGE_DAYS}")
     gen_client = genai.Client(api_key=GEMINI_API_KEY)
     api = blogger()
     
@@ -706,7 +722,7 @@ def main():
     if pre_dups: print(f"⚠ Duplicadas por conteúdo (pré-IA): {pre_dups}")
 
     candidates.sort(key=lambda a: a["date"] or datetime.min, reverse=True)
-    print(f"Novas matérias de rock/metal (de hoje): {len(candidates)}")
+    print(f"Novas matérias de rock/metal: {len(candidates)}")
 
     published = 0; failed = 0; ignored = 0; post_dups = 0
 
@@ -776,6 +792,5 @@ def main():
     print(f"Falhas: {failed}")
     if post_dups: print(f"⚠ Duplicadas detectadas após IA: {post_dups}")
 
-print("VERSÃO 2.2 ATIVA: Limite de 1 post/dia | Anti-Duplicidade Textual | Bloqueio Institucional | Imagens Sequenciais")
-
+print("VERSÃO 3.0 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
 main()

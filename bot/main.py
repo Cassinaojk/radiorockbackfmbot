@@ -39,7 +39,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.0 (Filtro Flexível + Modelo IA 3.5 + Scraping)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.1 (Filtro de Imagens + IA 3.5)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -79,7 +79,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip()
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
 AI_PROVIDER_TIMEOUT = int(os.getenv("AI_PROVIDER_TIMEOUT", "90"))
 
-# ===== Filtros de Título =====
+# ===== Filtros =====
 TITLE_BLOCK_TERMS = (
     "atualizações recentes", "atualizacoes recentes", "últimas atualizações", "ultimas atualizacoes",
     "novidades da", "novidades do", "extreme sound records", "sound records",
@@ -107,6 +107,12 @@ ROCK_SUPPORT_TERMS = (
     "musicista", "gravadora", "compositor", "compositora", "composicao", "instrumental",
     "vocal", "voz", "repertorio", "hit", "producao musical", "produtor musical",
     "guitarrista", "baixista", "baterista", "tecladista",
+)
+
+# Imagens a serem ignoradas (logos genéricas dos sites de origem)
+BLOCKED_IMAGES = (
+    "https://whiplash.net/imagens/whip_thumb_512.png",
+    "https://www.rocknoticias.com.br/site/assets/img/og-image.png"
 )
 
 def _rock_norm(value):
@@ -149,7 +155,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.0)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.1)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -235,12 +241,20 @@ def article_date(x):
     return None
 
 def image_original(x):
+    candidates = []
     for sel in ('meta[property="og:image"]','meta[property="og:image:secure_url"]','meta[name="twitter:image"]','meta[name="twitter:image:src"]','meta[itemprop="image"]'):
         n = x.select_one(sel)
         if n:
             u = (n.get("content") or "").strip()
             if u.startswith("//"): u = "https:" + u
-            if u.startswith(("http://", "https://")): return u
+            if u.startswith(("http://", "https://")): 
+                candidates.append(u)
+
+    # Filtra as imagens bloqueadas
+    for u in candidates:
+        if u not in BLOCKED_IMAGES:
+            return u
+            
     return ""
 
 def videos(x):
@@ -398,13 +412,11 @@ def check_content_duplicate(article, existing_posts):
 
 # ===== CHECAGEM DE LIMITE DIÁRIO =====
 def check_published_today(api):
-    """Verifica se já houve publicação hoje."""
     try:
         now_utc = datetime.now(timezone.utc)
         br_tz = timezone(timedelta(hours=-3))
         today_br = now_utc.astimezone(br_tz).strftime('%Y-%m-%d')
         
-        # Correção: "PUBLISHED" deve ser em maiúsculo
         response = api.posts().list(
             blogId=BLOGGER_BLOG_ID,
             maxResults=10,
@@ -792,5 +804,5 @@ def main():
     print(f"Falhas: {failed}")
     if post_dups: print(f"⚠ Duplicadas detectadas após IA: {post_dups}")
 
-print("VERSÃO 3.0 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
+print("VERSÃO 3.1 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
 main()

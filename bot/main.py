@@ -39,7 +39,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.1 (Filtro de Imagens + IA 3.5)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.2 (Filtro de Imagens + IA 3.5 + Debug de Fontes)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -155,7 +155,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.1)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.2)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -250,7 +250,6 @@ def image_original(x):
             if u.startswith(("http://", "https://")): 
                 candidates.append(u)
 
-    # Filtra as imagens bloqueadas
     for u in candidates:
         if u not in BLOCKED_IMAGES:
             return u
@@ -317,6 +316,7 @@ def get_article(url):
 def links(source):
     out = []; seen = set()
     source_host = urlparse(source["url"]).netloc.lower()
+    
     def host_matches(u):
         h = urlparse(u).netloc.lower()
         if h == source_host: return True
@@ -324,6 +324,7 @@ def links(source):
         hn = h.replace("www.","",1); sn = source_host.replace("www.","",1)
         return hn == sn or hn.endswith("." + sn)
         
+    rss_found = 0
     for feed in source["feeds"]:
         x = soup(feed, True)
         if not x: continue
@@ -332,10 +333,9 @@ def links(source):
             if not n: continue
             u = normalize_url(n.get("href") or n.get_text(strip=True) or "")
             if not u or bad_url(u) or not host_matches(u): continue
-            if u not in seen: seen.add(u); out.append(u)
+            if u not in seen: seen.add(u); out.append(u); rss_found += 1
             
-    rss_count = len(out)
-    
+    html_found = 0
     x = soup(source["url"])
     if x:
         for a in x.find_all("a", href=True):
@@ -343,9 +343,9 @@ def links(source):
             if bad_url(u) or not host_matches(u): continue
             path = urlparse(u).path.strip("/")
             if path.count("/") >= 1 and len(path) > 10:
-                if u not in seen: seen.add(u); out.append(u)
+                if u not in seen: seen.add(u); out.append(u); html_found += 1
                 
-    print(f"Links em {source['nome']}: {len(out)} (RSS: {rss_count}, HTML: {len(out)-rss_count})")
+    print(f"Links em {source['nome']}: {len(out)} (RSS: {rss_found}, HTML: {html_found})")
     return out[:MAX_LINKS_PER_SOURCE]
 
 def blogger():
@@ -804,5 +804,5 @@ def main():
     print(f"Falhas: {failed}")
     if post_dups: print(f"⚠ Duplicadas detectadas após IA: {post_dups}")
 
-print("VERSÃO 3.1 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
+print("VERSÃO 3.2 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
 main()

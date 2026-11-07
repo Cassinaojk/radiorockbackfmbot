@@ -28,6 +28,10 @@ def print(*args, **kwargs):
         or message.startswith("Puladas:")
         or message.startswith("Novas matérias")
         or message.startswith("MAX_AGE_DAYS")
+        or message.startswith("IA:") # Adicionado para mostrar os logs da IA
+        or message.startswith("⚠ gemini") # Adicionado para mostrar erros da IA
+        or message.startswith("⚠ groq")
+        or message.startswith("⚠ mistral")
     )
     if important:
         return _original_print(*args, **kwargs)
@@ -39,7 +43,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.2 (Filtro de Imagens + IA 3.5 + Debug de Fontes)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.3 (Log de IA Visível + Filtro de Imagens)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -69,9 +73,9 @@ MIN_SOURCE_CHARS = 250
 MIN_SOURCE_PARAGRAPHS = 1
 TIMEOUT = 25
 
-# Modelos de IA Atualizados
-GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.5-flash-lite")
+# Modelos de IA
+GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
@@ -155,7 +159,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.2)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.3)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -539,8 +543,14 @@ TEXTO-FONTE:
                         "palavras_chave": palavras[:SEO_KEYWORDS_MAX],
                         "categoria_seo": str(data.get("categoria_seo","")).strip()}
             except Exception as exc:
-                if any(x in str(exc).upper() for x in ("429","RESOURCE_EXHAUSTED","QUOTA","RATE LIMIT")): exhausted.add(provider); last_reason = "quota"
-                else: last_reason = "erro"
+                err_msg = str(exc).upper()
+                if any(x in err_msg for x in ("429","RESOURCE_EXHAUSTED","QUOTA","RATE LIMIT")):
+                    exhausted.add(provider)
+                    last_reason = "quota"
+                    print(f"⚠ {provider}: quota atingida")
+                else:
+                    last_reason = "erro"
+                    print(f"⚠ {provider}: erro na geração - {str(exc)[:150]}")
     if last_reason == "quota": gemini_quota_hit = True
     return None
 
@@ -743,7 +753,9 @@ def main():
         n = normalize_url(art["url"])
         if n in old_source_urls: ignored += 1; continue
 
-        if gemini_calls >= MAX_GEMINI_TEXT_CALLS_PER_RUN: break
+        if gemini_calls >= MAX_GEMINI_TEXT_CALLS_PER_RUN: 
+            print("⚠ Limite de chamadas de IA atingido.")
+            break
 
         gen = gemini(art, gen_client)
         if not gen:
@@ -804,5 +816,5 @@ def main():
     print(f"Falhas: {failed}")
     if post_dups: print(f"⚠ Duplicadas detectadas após IA: {post_dups}")
 
-print("VERSÃO 3.2 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
+print("VERSÃO 3.3 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
 main()

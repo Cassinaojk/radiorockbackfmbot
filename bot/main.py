@@ -22,14 +22,13 @@ def print(*args, **kwargs):
         or message.startswith("Falhas:")
         or message.startswith("⚠ Duplicata de assunto:")
         or message.startswith("⚠ Notícia antiga:")
-        or message.startswith("⚠ Limite diário:")
         or message.startswith("Erro:")
         or message.startswith("Fontes encontradas:")
         or message.startswith("Puladas:")
         or message.startswith("Novas matérias")
         or message.startswith("MAX_AGE_DAYS")
-        or message.startswith("IA:") # Log da IA visível
-        or message.startswith("⚠ gemini") # Erros da IA visíveis
+        or message.startswith("IA:")
+        or message.startswith("⚠ gemini")
         or message.startswith("⚠ groq")
         or message.startswith("⚠ mistral")
     )
@@ -43,7 +42,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.4 (Modelo IA Atualizado + Log de Erros)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 4.1 (1 Post por Execução + Modelo IA 3.8)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -73,7 +72,7 @@ MIN_SOURCE_CHARS = 250
 MIN_SOURCE_PARAGRAPHS = 1
 TIMEOUT = 25
 
-# Modelos de IA Atualizados (3.8-flash é o mais recente e estável)
+# Modelos de IA
 GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
 GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2", "").strip()
@@ -83,7 +82,7 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama3-70b-8192").strip()
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-small-latest").strip()
 AI_PROVIDER_TIMEOUT = int(os.getenv("AI_PROVIDER_TIMEOUT", "90"))
 
-# ===== Filtros =====
+# ===== Filtros de Título Institucional =====
 TITLE_BLOCK_TERMS = (
     "atualizações recentes", "atualizacoes recentes", "últimas atualizações", "ultimas atualizacoes",
     "novidades da", "novidades do", "extreme sound records", "sound records",
@@ -93,24 +92,6 @@ TITLE_BLOCK_TERMS = (
     "comunicado", "comunicados", "expediente", "nota da redação", "nota da redacao",
     "retratação", "retratacao", "agradecimento", "agradecimentos",
     "feliz natal", "feliz ano novo", "boas festas", "boas férias",
-)
-
-ROCK_STRONG_TERMS = (
-    "rock", "metal", "heavy metal", "hard rock", "punk", "grunge", "indie", "alternativo",
-    "progressivo", "glam", "new metal", "classic rock", "album", "single", "turnê", "show",
-    "festival", "guitarra", "bateria", "baixo", "vocalista", "banda", "disco", "lançamento",
-    "videoclipe", "clipe", "turnê mundial", "line-up", "rock'n'roll", "rock and roll",
-    "headbanger", "mosh", "palco", "metallica", "iron maiden", "guns n' roses", "nirvana",
-    "ac/dc", "led zeppelin", "pink floyd", "queen", "ozzy", "black sabbath", "slipknot",
-    "korn", "system of a down", "evanescence", "audioslave", "pearl jam", "soundgarden",
-    "alice in chains", "foo fighters", "red hot chili peppers", "linkin park", "green day",
-    "offspring",
-)
-ROCK_SUPPORT_TERMS = (
-    "cantor", "cantora", "artista", "banda", "dupla", "musico", "musica", "musical",
-    "musicista", "gravadora", "compositor", "compositora", "composicao", "instrumental",
-    "vocal", "voz", "repertorio", "hit", "producao musical", "produtor musical",
-    "guitarrista", "baixista", "baterista", "tecladista",
 )
 
 # Imagens a serem ignoradas (logos genéricas dos sites de origem)
@@ -124,31 +105,6 @@ def _rock_norm(value):
     value = "".join(c for c in value if not unicodedata.combining(c))
     return re.sub(r"\s+", " ", value.lower()).strip()
 
-def is_rock_related(article=None, generated=None, raw_text=""):
-    article = article or {}
-    generated = generated or {}
-    parts = [article.get("title", ""), article.get("text", ""), generated.get("titulo", ""), generated.get("resumo", ""), generated.get("materia", ""), raw_text]
-    combined = _rock_norm(" ".join(str(x or "") for x in parts))
-    title = _rock_norm(article.get("title", "") or generated.get("titulo", ""))
-    if not combined: return False
-    if any(term in title for term in ROCK_STRONG_TERMS): return True
-    strong_hits = sum(1 for term in ROCK_STRONG_TERMS if term in combined)
-    support_hits = sum(1 for term in ROCK_SUPPORT_TERMS if term in combined)
-    if strong_hits >= 1 and support_hits >= 1: return True
-    if strong_hits >= 2: return True
-    return False
-
-def quick_rock_prefilter(article):
-    title = _rock_norm(article.get("title", ""))
-    if any(term in title for term in TITLE_BLOCK_TERMS): return False, "post institucional/genérico"
-    head = _rock_norm(article.get("text", "")[:400])
-    combined = f"{title} {head}"
-    if any(t in title for t in ROCK_STRONG_TERMS): return True, ""
-    strong = sum(1 for t in ROCK_STRONG_TERMS if t in combined)
-    support = sum(1 for t in ROCK_SUPPORT_TERMS if t in combined)
-    if strong >= 1 and support >= 1: return True, ""
-    return False, "sem termos de rock/metal fortes"
-
 SOURCES = [
     {"nome": "Rock Notícias", "url": "https://www.rocknoticias.com.br/", "feeds": ["https://www.rocknoticias.com.br/feed/"]},
     {"nome": "Whiplash.net", "url": "https://whiplash.net/", "feeds": ["https://whiplash.net/feed/", "https://whiplash.net/rss/"]},
@@ -159,7 +115,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.4)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/4.1)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -257,7 +213,6 @@ def image_original(x):
     for u in candidates:
         if u not in BLOCKED_IMAGES:
             return u
-            
     return ""
 
 def videos(x):
@@ -358,10 +313,9 @@ def blogger():
                         scopes=["https://www.googleapis.com/auth/blogger"])
     return build("blogger", "v3", credentials=creds, cache_discovery=False)
 
-# ===== BUSCA NO BLOGGER E ANTI-DUPLICIDADE =====
+# ===== BUSCA NO BLOGGER =====
 def get_all_existing_data(api):
     blog_urls, source_urls = set(), set()
-    existing_posts = []
     token = None
     try:
         while True:
@@ -373,68 +327,16 @@ def get_all_existing_data(api):
                 if post_url: blog_urls.add(post_url)
                 
                 content = post.get("content","") or ""
-                title = post.get("title","") or ""
-                
                 for m in re.findall(r'href=["\'](https?://[^"\']+)["\']', content, flags=re.I):
                     source_urls.add(normalize_url(m))
                 for m in re.findall(r'RADIO_ROCKBACK_FM_SOURCE_URL:\s*(https?://[^\s]+?)\s*-->', content, flags=re.I):
                     source_urls.add(normalize_url(m))
                 
-                clean = re.sub(r"\s+", " ", BeautifulSoup(content, "html.parser").get_text(" ", strip=True)).strip()
-                if clean and len(clean) > 100:
-                    existing_posts.append({"title": title, "text": clean})
             token = data.get("nextPageToken")
             if not token: break
     except Exception as e: print("Erro ao consultar Blogger:", e)
-    print(f"Posts existentes verificados: {len(existing_posts)}")
-    return blog_urls, source_urls, existing_posts
-
-def extract_meaningful_words(text):
-    norm = _rock_norm(text)
-    words = set(re.findall(r"\b[a-z]{4,}\b", norm))
-    stopwords = {"a","o","e","de","da","do","das","dos","em","no","na","que","se","para","por","com","um","uma","mais","como","sobre","mas","sua","seu","pelo","pela","guia","pratico","completo","essenciais","ferramentas","tutorial"}
-    return words - stopwords
-
-def check_content_duplicate(article, existing_posts):
-    new_title_words = extract_meaningful_words(article["title"])
-    new_text_words = extract_meaningful_words(article["text"])
-    for old in existing_posts:
-        old_title_words = extract_meaningful_words(old["title"])
-        old_text_words = extract_meaningful_words(old["text"])
-        
-        title_overlap = new_title_words & old_title_words
-        if len(title_overlap) >= 2:
-            return True, f"Título similar: {old['title'][:50]}"
-            
-        if new_text_words and old_text_words:
-            intersection = new_text_words & old_text_words
-            union = new_text_words | old_text_words
-            jaccard = len(intersection) / len(union)
-            if jaccard > 0.40:
-                return True, f"Conteúdo similar ({jaccard*100:.0f}%): {old['title'][:50]}"
-    return False, ""
-
-# ===== CHECAGEM DE LIMITE DIÁRIO =====
-def check_published_today(api):
-    try:
-        now_utc = datetime.now(timezone.utc)
-        br_tz = timezone(timedelta(hours=-3))
-        today_br = now_utc.astimezone(br_tz).strftime('%Y-%m-%d')
-        
-        response = api.posts().list(
-            blogId=BLOGGER_BLOG_ID,
-            maxResults=10,
-            fetchBodies=False,
-            orderBy="PUBLISHED"
-        ).execute()
-        
-        for post in response.get("items", []):
-            pub_date = post.get("published", "")
-            if pub_date.startswith(today_br):
-                return True, post.get("title", "")
-    except Exception as e:
-        print(f"⚠ Aviso: erro ao checar limite diário: {e}")
-    return False, ""
+    print(f"Posts existentes verificados: {len(blog_urls)}")
+    return blog_urls, source_urls
 
 # ===== IA =====
 def is_transient_gemini_error(exc):
@@ -581,8 +483,7 @@ def build_seo_payload(article, generated, final_image="", image_origin=""):
     for fb in ("rock","heavy metal","notícias de rock", BLOG_NAME):
         if fb.lower() not in {k.lower() for k in kw}: kw.append(fb)
     keywords = ", ".join(kw[:SEO_KEYWORDS_MAX])
-    labels = ["Notícias","Rádio RockBack FM"]
-    if is_rock_related(article=article, generated=generated): labels.insert(1, "Rock")
+    labels = ["Notícias","Rádio RockBack FM", "Rock"]
     if cat and cat not in labels: labels.append(cat)
     if assunto and assunto not in labels and len(assunto) <= 40: labels.append(assunto)
     if article.get("date"): labels.append(str(article["date"].year))
@@ -691,29 +592,18 @@ def html(article, generated, final_image="", image_origin="", seo=None):
 
 # ===== MAIN =====
 def main():
-    print("Fontes: Rock Notícias + Whiplash.net | Anti-Duplicidade Textual | Limite de 1 post por dia")
+    print("Fontes: Rock Notícias + Whiplash.net | Publicando 1 matéria por execução")
     print(f"MAX_AGE_DAYS configurado: {MAX_AGE_DAYS}")
     gen_client = genai.Client(api_key=GEMINI_API_KEY)
     api = blogger()
     
-    # 1. TRAVA DIÁRIA: Verifica se já postou hoje
-    already_published, last_title = check_published_today(api)
-    if already_published:
-        print(f"⚠ Limite diário: Já foi publicada uma matéria hoje («{last_title[:50]}»). O robô vai aguardar até amanhã.")
-        print("RESULTADO")
-        print("Publicações: 0")
-        print("Ignoradas: 0")
-        print("Falhas: 0")
-        return
-
-    # 2. Busca dados para anti-duplicidade
-    old_blog_urls, old_source_urls, existing_posts = get_all_existing_data(api)
+    # Busca dados para não repetir links
+    old_blog_urls, old_source_urls = get_all_existing_data(api)
 
     candidates = []
     candidate_urls = set()
     source_counts = {}
     prefiltered = 0
-    pre_dups = 0
 
     for source in SOURCES:
         sl = links(source)
@@ -723,30 +613,17 @@ def main():
             if n in candidate_urls or n in old_blog_urls or n in old_source_urls: continue
             art = get_article(n)
             if art:
-                if not is_rock_related(article=art): prefiltered += 1; continue
-                passed, reason = quick_rock_prefilter(art)
-                if not passed:
-                    prefiltered += 1
-                    print(f"⚠ Pulada (pré-filtro): {art['title'][:70]} — {reason}")
-                    continue
-
-                # Verificação de duplicata Pré-IA
-                is_dup_pre, dup_reason_pre = check_content_duplicate(art, existing_posts)
-                if is_dup_pre:
-                    pre_dups += 1
-                    print(f"⚠ Duplicata de assunto (Pré-IA): «{art['title'][:60]}» — {dup_reason_pre}.")
-                    continue
-
                 candidate_urls.add(n); candidates.append(art)
+            else:
+                prefiltered += 1
 
     print(f"Fontes encontradas: {' | '.join(f'{k}: {v}' for k, v in source_counts.items())}")
-    print(f"Puladas: {prefiltered + pre_dups}")
-    if pre_dups: print(f"⚠ Duplicadas por conteúdo (pré-IA): {pre_dups}")
+    print(f"Puladas: {prefiltered}")
 
     candidates.sort(key=lambda a: a["date"] or datetime.min, reverse=True)
     print(f"Novas matérias de rock/metal: {len(candidates)}")
 
-    published = 0; failed = 0; ignored = 0; post_dups = 0
+    published = 0; failed = 0; ignored = 0
 
     while candidates and published < MAX_POSTS_PER_RUN:
         art = candidates.pop(0)
@@ -761,15 +638,6 @@ def main():
         if not gen:
             ignored += 1
             if gemini_quota_hit: break
-            continue
-
-        # Verificação de duplicata Pós-IA
-        gen_art = {"title": gen.get("titulo", ""), "text": gen.get("materia", "")}
-        is_dup_post, dup_reason_post = check_content_duplicate(gen_art, existing_posts)
-        if is_dup_post:
-            print(f"⚠ Duplicata de assunto (Pós-IA): «{gen.get('titulo','')[:60]}» — {dup_reason_post}.")
-            post_dups += 1
-            ignored += 1
             continue
 
         # Imagem Padrão
@@ -788,7 +656,6 @@ def main():
             resp = api.posts().insert(blogId=BLOGGER_BLOG_ID, body=post_body, isDraft=False).execute()
             published += 1
             old_source_urls.add(n)
-            existing_posts.append({"title": seo["title"], "text": gen.get("materia", "")})
 
             proximo = (contador % len(IMAGENS_PADRAO)) + 1
             salvar_contador_imagem(proximo)
@@ -803,7 +670,7 @@ def main():
                 except Exception as e: print(f"⚠ SEO canonical: {e}")
             print(f"✓ Publicada: {seo['title'].strip()}")
             
-            # Como a regra é 1 por dia, se publicou 1, encerra a execução
+            # Se publicou 1, encerra a execução
             break 
             
         except Exception as exc:
@@ -814,7 +681,6 @@ def main():
     print(f"Publicações: {published}")
     print(f"Ignoradas: {ignored}")
     print(f"Falhas: {failed}")
-    if post_dups: print(f"⚠ Duplicatas detectadas após IA: {post_dups}")
 
-print("VERSÃO 3.4 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.8 | Scraping")
+print("VERSÃO 4.1 ATIVA: 1 Post por Execução | Modelo IA 3.8 | Sem Filtros")
 main()

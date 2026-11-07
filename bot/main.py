@@ -28,8 +28,8 @@ def print(*args, **kwargs):
         or message.startswith("Puladas:")
         or message.startswith("Novas matérias")
         or message.startswith("MAX_AGE_DAYS")
-        or message.startswith("IA:") # Adicionado para mostrar os logs da IA
-        or message.startswith("⚠ gemini") # Adicionado para mostrar erros da IA
+        or message.startswith("IA:") # Log da IA visível
+        or message.startswith("⚠ gemini") # Erros da IA visíveis
         or message.startswith("⚠ groq")
         or message.startswith("⚠ mistral")
     )
@@ -43,7 +43,7 @@ from google import genai
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.3 (Log de IA Visível + Filtro de Imagens)")
+print("RÁDIO ROCKBACK FM - ROBÔ DE NOTÍCIAS 3.4 (Modelo IA Atualizado + Log de Erros)")
 
 BLOGGER_BLOG_ID = os.environ["BLOGGER_BLOG_ID"]
 GOOGLE_CLIENT_ID = os.environ["GOOGLE_CLIENT_ID"]
@@ -73,9 +73,9 @@ MIN_SOURCE_CHARS = 250
 MIN_SOURCE_PARAGRAPHS = 1
 TIMEOUT = 25
 
-# Modelos de IA
-GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.0-flash")
+# Modelos de IA Atualizados (3.8-flash é o mais recente e estável)
+GEMINI_MODEL_TEXT = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-3.6-flash")
 GEMINI_API_KEY_2 = os.getenv("GEMINI_API_KEY_2", "").strip()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "").strip()
@@ -159,7 +159,7 @@ SHARE_DOMAINS = ("pinterest.","reddit.com/submit","facebook.com/sharer","twitter
 VIDEO_HOSTS = ("youtube.com/embed/","youtube.com/watch","youtube-nocookie.com/embed/","youtu.be/","player.vimeo.com","vimeo.com/video","facebook.com/plugins/video","web.facebook.com/plugins/video","instagram.com/p/","instagram.com/reel/","instagram.com/tv/","dailymotion.com/embed","twitch.tv/","streamable.com/e/","rumble.com/embed")
 
 s = requests.Session()
-s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.3)"})
+s.headers.update({"User-Agent": "Mozilla/5.0 (compatible; RockBackFMBot/3.4)"})
 
 gemini_calls = 0
 gemini_quota_hit = False
@@ -814,7 +814,7 @@ def main():
     print(f"Publicações: {published}")
     print(f"Ignoradas: {ignored}")
     print(f"Falhas: {failed}")
-    if post_dups: print(f"⚠ Duplicadas detectadas após IA: {post_dups}")
+    if post_dups: print(f"⚠ Duplicatas detectadas após IA: {post_dups}")
 
-print("VERSÃO 3.3 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.5 | Scraping")
+print("VERSÃO 3.4 ATIVA: Limite de 1 post/dia | Anti-Duplicidade | Modelo IA 3.8 | Scraping")
 main()

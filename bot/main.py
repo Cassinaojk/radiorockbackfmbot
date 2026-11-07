@@ -94,7 +94,10 @@ TITLE_BLOCK_TERMS = (
     "feliz natal", "feliz ano novo", "boas festas", "boas férias",
 )
 
-# Imagens a serem ignoradas (logos genéricas dos sites de origem)
+# =====================================================================
+# AQUI ESTÃO AS DUAS IMAGENS QUE VOCÊ PEDIU PARA BLOQUEAR
+# O robô não vai usar essas imagens no 2º parágrafo
+# =====================================================================
 BLOCKED_IMAGES = (
     "https://whiplash.net/imagens/whip_thumb_512.png",
     "https://www.rocknoticias.com.br/site/assets/img/og-image.png"
@@ -121,7 +124,7 @@ gemini_calls = 0
 gemini_quota_hit = False
 _ai_config_logged = False
 
-# ===== IMAGENS PADRÃO =====
+# ===== IMAGENS PADRÃO (DESTAQUE DO TOPO) =====
 IMAGENS_PADRAO = [f"https://raw.githubusercontent.com/Cassinaojk/radiorockbackfmbot/main/bot/imagens/Imagens%20Rock%20Flashback%20({i}).png" for i in range(1, 11)]
 COUNTER_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "image_counter.txt")
 
@@ -200,6 +203,10 @@ def article_date(x):
             if d: return d
     return None
 
+# =====================================================================
+# AQUI É FEITA A EXTRAÇÃO DA IMAGEM ORIGINAL
+# Se a imagem for uma das duas bloqueadas, ela é ignorada.
+# =====================================================================
 def image_original(x):
     candidates = []
     for sel in ('meta[property="og:image"]','meta[property="og:image:secure_url"]','meta[name="twitter:image"]','meta[name="twitter:image:src"]','meta[itemprop="image"]'):
@@ -210,6 +217,7 @@ def image_original(x):
             if u.startswith(("http://", "https://")): 
                 candidates.append(u)
 
+    # Verifica se a imagem encontrada não está na lista de bloqueio
     for u in candidates:
         if u not in BLOCKED_IMAGES:
             return u
@@ -269,6 +277,10 @@ def get_article(url):
     if len(text) < MIN_SOURCE_CHARS or len(paragraphs) < MIN_SOURCE_PARAGRAPHS: return None
     
     vv = videos(x)
+    # =====================================================================
+    # AQUI DEFINE QUE A IMAGEM ORIGINAL VAI PARA O 2º PARÁGRAFO
+    # Se a imagem for vazia (por ser bloqueada), não insere nada.
+    # =====================================================================
     inline_imgs = [{"url": img, "after_paragraph": 2, "is_main": True}] if img else []
     return {"url": normalize_url(url), "title": title, "date": d, "image": img, "text": text[:16000], "videos": vv, "inline_images": inline_imgs}
 
@@ -538,30 +550,52 @@ def _render_inline_image_html(img_url, alt_text):
             'box-shadow:0 4px 12px rgba(0,0,0,0.10);display:block;'
             'margin-left:auto;margin-right:auto;"></p>')
 
+# =====================================================================
+# AQUI É FEITA A MONTAGEM DO HTML FINAL DO POST
+# =====================================================================
 def html(article, generated, final_image="", image_origin="", seo=None):
     seo = seo or {}
     tb = seo.get("titulo_base") or generated.get("titulo","")
     st = tb.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;").replace('"',"&quot;")
+    
+    # Imagem de DESTAQUE (topo do post) - Vem da sequência do GitHub (IMAGENS_PADRAO)
     iu = final_image or article["image"]
     si = iu.replace("&","&amp;").replace('"',"&quot;")
+    
     ss = article["url"].replace("&","&amp;").replace('"',"&quot;")
     head = seo.get("html_head","")
     content = []
     if head: content.append(head)
+    
+    # Insere o Título, Resumo e a Imagem de Destaque do GitHub
     content.extend([f'<p><strong>{generated["resumo"]}</strong></p>', f'<p><img src="{si}" alt="{st}" title="{st}" width="1200" height="630" style="max-width:100%;height:auto;border-radius:12px;"></p>'])
+    
+    # Processa os parágrafos e insere a imagem ORIGINAL após o 2º parágrafo
     paras = [p.strip() for p in re.split(r"\n+", generated["materia"]) if p.strip()]
     imgs = list(article.get("inline_images") or [])[:1]
     imgs.sort(key=lambda x: x.get("after_paragraph", 9999))
     parts = []; idx = 0; total = len(paras)
+    
     for im in imgs:
         t = im.get("after_paragraph", 9999)
         try: t = int(t)
         except Exception: t = 9999
         t = max(0, min(t, total))
-        while idx < t: parts.append(f"<p>{paras[idx]}</p>"); idx += 1
+        
+        # Adiciona os parágrafos até chegar no ponto da imagem
+        while idx < t: 
+            parts.append(f"<p>{paras[idx]}</p>"); 
+            idx += 1
+            
+        # Insere a imagem original (se existir e não estiver bloqueada)
         r = _render_inline_image_html(im.get("url",""), tb)
         if r: parts.append(r)
-    while idx < total: parts.append(f"<p>{paras[idx]}</p>"); idx += 1
+        
+    # Termina de adicionar o resto dos parágrafos
+    while idx < total: 
+        parts.append(f"<p>{paras[idx]}</p>"); 
+        idx += 1
+        
     content.extend(parts)
     for vu in article["videos"]:
         content.append('<div style="margin:24px 0;"><div style="position:relative;width:100%;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px;">'
@@ -640,7 +674,7 @@ def main():
             if gemini_quota_hit: break
             continue
 
-        # Imagem Padrão
+        # Imagem Padrão do GitHub (Destaque)
         contador = ler_contador_imagem()
         final_image = IMAGENS_PADRAO[contador - 1]
         image_origin = f"Imagem padrão do repositório (índice {contador}/10)"

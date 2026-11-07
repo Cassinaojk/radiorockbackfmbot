@@ -2,11 +2,11 @@ name: Robô Rádio RockBack FM
 
 on:
   schedule:
-    # Roda 3 vezes ao dia (meio-dia, 18h e 23h BRT) para garantir que, 
-    # se falhar de manhã, tenta de novo à tarde/noite.
+    # Opção 1: 07:00, 12:00 e 18:00 (Horário de Brasília)
+    # O GitHub usa UTC, por isso +3 horas
+    - cron: "0 10 * * *"
     - cron: "0 15 * * *"
     - cron: "0 21 * * *"
-    - cron: "0 2 * * *"
   workflow_dispatch:
   push:
     branches:
@@ -77,7 +77,6 @@ jobs:
           MAX_POSTS_PER_RUN: "1"
           MAX_GEMINI_TEXT_CALLS_PER_RUN: "6"
 
-          # CORREÇÃO AQUI: Atualizado para o modelo 3.8-flash
           GEMINI_MODEL: "gemini-3.8-flash"
           GEMINI_FALLBACK_MODEL: "gemini-3.6-flash"
           GROQ_MODEL: "openai/gpt-oss-20b"
